@@ -29,6 +29,7 @@ class CaffeFunction(Function):
 
     def __call__(self, inputs, outputs):
         variables = dict(inputs)
+        # TODO(beam2d): Stop computation if all the outputs are computed.
         for func_name, bottom, top in self.layers:
             if any(blob not in variables for blob in bottom):
                 continue
