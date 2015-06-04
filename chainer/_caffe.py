@@ -1,3 +1,4 @@
+import collections
 import types
 import numpy
 from chainer import cuda, Function, FunctionSet
@@ -20,7 +21,7 @@ def _get_pad(param):
         return (param.pad_h, param.pad_w)
     else:
         return param.pad
-    
+
 
 class CaffeFunction(Function):
     """Function using Caffe's model file."""
@@ -51,16 +52,17 @@ class CaffeFunction(Function):
         self.train = train
         variables = dict(inputs)
         for func_name, bottom, top in self.layers:
-            print func_name, variables
             if (func_name in disable or
+                func_name not in self.forwards or
                 any(blob not in variables for blob in bottom)):
-
                 continue
+            print func_name
 
             func = self.forwards[func_name]
             input_vars  = tuple(variables[blob] for blob in bottom)
-            # TODO(beam2d): Support test mode for some functions (e.g. Dropout)
             output_vars = func(*input_vars)
+            if not isinstance(output_vars, collections.Iterable):
+                output_vars = output_vars,
             for var, name in zip(output_vars, top):
                 variables[name] = var
 
@@ -94,7 +96,7 @@ class CaffeFunction(Function):
         bottom = []
         for blob_name in layer.bottom:
             bottom.append(self.split_map.get(blob_name, blob_name))
-        self.layers.append((layer.name, layer.bottom, layer.top))
+        self.layers.append((layer.name, bottom, layer.top))
 
     def _process_Concat(self, layer):
         param = layer.concat_param
@@ -200,7 +202,8 @@ class CaffeFunction(Function):
             raise RuntimeError('Softmax along non-channel axis is not supported')
 
         self.forwards[layer.name] = F.softmax_cross_entropy
+        self._add_layer(layer)
 
     def _process_Split(self, layer):
         for top in layer.top:
-            self.split_map[top] = layer.bottom
+            self.split_map[top] = layer.bottom[0]
