@@ -36,7 +36,8 @@ parser.add_argument('--model', '-m', choices=['skipgram', 'cbow'],
                     help='model type ("skipgram", "cbow")')
 parser.add_argument('--negative-size', default=5, type=int,
                     help='number of negative samples')
-parser.add_argument('--out-type', '-o', choices=['hsm', 'ns', 'blackout', 'original'],
+parser.add_argument('--out-type', '-o',
+                    choices=['hsm', 'ns', 'blackout', 'original'],
                     default='hsm',
                     help='output model type ("hsm": hierarchical softmax, '
                     '"ns": negative sampling, "original": no approximation)')
