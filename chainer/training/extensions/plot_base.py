@@ -1,7 +1,5 @@
 import collections
 
-import six
-
 from chainer import reporter
 from chainer.training import extension
 import chainer.training.trigger as trigger_module
