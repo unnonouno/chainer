@@ -1,6 +1,7 @@
 import numpy
 import six
 
+import cupy
 from chainer import cuda
 from chainer import function
 from chainer import function_node
@@ -215,28 +216,58 @@ class LSTMGrad(function.Function):
         gtanh_c = _grad_tanh(tanh_c)
         ggtanh_c = _grad_grad_tanh(tanh_c, gtanh_c)
 
-        gc_bar = gh * sig_o * gtanh_c + gc
+        @cupy.fuse()
+        def mul3p(a, b, c, d):
+            return a * b * c + d
 
-        gc_prev[:batch] = ggf * gc_bar * gsig_f
-        ga[:] = (gga * sig_i * ggtanh_a +
-                 ggi * gtanh_a * gsig_i) * gc_bar
-        gi[:] = (gga * gtanh_a * gsig_i +
-                 ggi * tanh_a * ggsig_i) * gc_bar
-        gf[:] = (ggc_prev * (gh * sig_o * gtanh_c + gc) * gsig_f +
-                 ggf * gc_bar * c_prev[:batch] * ggsig_f)
+        @cupy.fuse()
+        def mul3(a, b, c):
+            return a * b * c
 
-        ggc_this = (
-            ggc_prev * sig_f +
-            gga * sig_i * gtanh_a +
-            ggi * tanh_a * gsig_i +
-            ggf * c_prev[:batch] * gsig_f)
+        @cupy.fuse()
+        def mul3_mul3_mul(a, b, c, d, e, f, g):
+            return (a * b * c + d * e * f) * g
+
+        @cupy.fuse()
+        def mul2_mul3_mul3_mul3(a, b, c, d, e, f, g, h, i, j, k):
+            return a * b + c * d * e + f * g * h + i * j * k
+
+        @cupy.fuse()
+        def mul2_mul4(a, b, c, d, e, f):
+            return a * b + c * d * e * f
+
+        @cupy.fuse()
+        def mul3_mul3(a, b, c, d, e, f):
+            return a * b * c + d * e * f
+            
+        gc_bar = mul3p(gh, sig_o, gtanh_c, gc)
+
+        gc_prev[:batch] = mul3(ggf, gc_bar, gsig_f)
+        ga[:] = mul3_mul3_mul(
+            gga, sig_i, ggtanh_a, ggi, gtanh_a, gsig_i, gc_bar)
+        gi[:] = mul3_mul3_mul(
+            gga, gtanh_a, gsig_i, ggi, tanh_a, ggsig_i, gc_bar)
+
+        def calc_gf(ggc_prev, gh, sig_o, gtanh_c, gc, gsig_f,
+                    ggf, gc_bar, c_prev, ggsig_f):
+            return (ggc_prev * (gh * sig_o * gtanh_c + gc) * gsig_f +
+                    ggf * gc_bar * c_prev * ggsig_f)
+
+        gf[:] = calc_gf(ggc_prev, gh, sig_o, gtanh_c, gc, gsig_f,
+                        ggf, gc_bar, c_prev, ggsig_f)
+
+        ggc_this = mul2_mul3_mul3_mul3(
+            ggc_prev, sig_f,
+            gga, sig_i, gtanh_a,
+            ggi, tanh_a, gsig_i,
+            ggf, c_prev[:batch], gsig_f)
         ggc[:batch] = ggc_this
 
-        dgc_do = gh * gsig_o * gtanh_c
-        go[:] = ggc_this * dgc_do + ggo * gh * tanh_c * ggsig_o
-        dgc_dc = gh * sig_o * ggtanh_c
-        gc_next[:batch] = ggc_this * dgc_dc + ggo * gh * gtanh_c * gsig_o
-        ggh[:batch] = ggc_this * sig_o * gtanh_c + ggo * tanh_c * gsig_o
+        dgc_do = mul3(gh, gsig_o, gtanh_c)
+        go[:] = mul2_mul4(ggc_this, dgc_do, ggo, gh, tanh_c, ggsig_o)
+        dgc_dc = mul3(gh, sig_o, ggtanh_c)
+        gc_next[:batch] = mul2_mul4(ggc_this, dgc_dc, ggo, gh, gtanh_c, gsig_o)
+        ggh[:batch] = mul3_mul3(ggc_this, sig_o, gtanh_c, ggo, tanh_c, gsig_o)
 
         return gc_prev, gx, gc_next, ggc, ggh
 
