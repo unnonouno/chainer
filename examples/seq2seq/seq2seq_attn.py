@@ -20,14 +20,14 @@ class Seq2seqAttention(chainer.Chain):
     """Implementaion of Luong's attentional NMT model."""
 
     def __init__(self, n_layers, n_source_vocab, n_target_vocab, n_units):
-        super(Seq2seqAttention, self).__init__(
-            embed_x=L.EmbedID(n_source_vocab, n_units),
-            embed_y=L.EmbedID(n_target_vocab, n_units),
-            encoder=L.NStepLSTM(n_layers, n_units, n_units, 0.1),
-            decoder=L.NStepLSTM(n_layers, n_units, n_units, 0.1),
-            W=L.Linear(n_units, n_target_vocab),
-            Wc=L.Linear(n_units * 2, n_units),
-        )
+        super(Seq2seqAttention, self).__init__()
+        with self.init_scope():
+            self.embed_x = L.EmbedID(n_source_vocab, n_units)
+            self.embed_y = L.EmbedID(n_target_vocab, n_units)
+            self.encoder = L.NStepLSTM(n_layers, n_units, n_units, 0.1)
+            self.decoder = L.NStepLSTM(n_layers, n_units, n_units, 0.1)
+            self.W = L.Linear(n_units, n_target_vocab)
+            self.Wc = L.Linear(n_units * 2, n_units)
 
         self.n_layers = n_layers
         self.n_units = n_units
