@@ -44,11 +44,10 @@ class Seq2seqAttention(chainer.Chain):
 
         batch = len(xs)
         # Initial hidden variable and cell variable
-        zero = self.xp.zeros((self.n_layers, batch, self.n_units), 'f')
-        hx, cx, hxs = self.encoder(zero, zero, exs)
+        hx, cx, hxs = self.encoder(None, None, exs)
         _, _, os = self.decoder(hx, cx, eys)
 
-        indices = numpy.argsort([-y.shape[0] for y in ys]).astype('i')
+        indices = numpy.argsort([-len(y) for y in ys]).astype('i')
 
         hxs = [hxs[i] for i in indices]
         hxs_zero = F.pad_sequence(hxs, padding=0)
@@ -79,11 +78,11 @@ class Seq2seqAttention(chainer.Chain):
         concat_os = F.concat(os, axis=0)
         concat_ys_out = F.concat(ys_out, axis=0)
         loss = F.softmax_cross_entropy(
-            self.W(concat_os), concat_ys_out, normalize=False) \
-            * concat_ys_out.shape[0] / batch
+            self.W(concat_os), concat_ys_out, reduce='no') / batch
 
         reporter.report({'loss': loss.data}, self)
-        perp = self.xp.exp(loss.data / concat_ys_out.shape[0] * batch)
+        n_words = concat_ys_out.shape[0]
+        perp = self.xp.exp(loss.data / n_words)
         reporter.report({'perp': perp}, self)
         return loss
 
