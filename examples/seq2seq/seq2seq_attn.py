@@ -32,10 +32,7 @@ class Seq2seqAttention(chainer.Chain):
         self.n_layers = n_layers
         self.n_units = n_units
 
-    def __call__(self, *inputs):
-        xs = inputs[:len(inputs) // 2]
-        ys = inputs[len(inputs) // 2:]
-
+    def __call__(self, xs, ys):
         xs = [x[::-1] for x in xs]
 
         eos = self.xp.zeros(1, 'i')
