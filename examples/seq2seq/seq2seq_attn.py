@@ -73,7 +73,7 @@ class Seq2seqAttention(chainer.Chain):
             wh = hxs_z * a
             c = F.average(wh, axis=1)
             h = self.Wc(F.concat([c, h]))
-            os_new_t.append(h)
+            os_new_t.append(F.tanh(h))
         os = F.transpose_sequence(os_new_t)
 
         concat_os = F.concat(os, axis=0)
