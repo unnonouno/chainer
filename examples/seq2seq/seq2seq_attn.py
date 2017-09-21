@@ -88,12 +88,12 @@ class Seq2seqAttention(chainer.Chain):
 
     def translate(self, xs, max_length=50):
         batch = len(xs)
-        with chainer.no_backprop_mode():
+        with chainer.no_backprop_mode(), chainer.using_config('train', False):
             xs = [x[::-1] for x in xs]
             exs = sequence_embed(self.embed_x, xs)
             # Initial hidden variable and cell variable
             zero = self.xp.zeros((self.n_layers, batch, self.n_units), 'f')
-            h, c, hxs = self.encoder(zero, zero, exs, train=False)
+            h, c, hxs = self.encoder(zero, zero, exs)
 
             hxs_zero = F.pad_sequence(hxs, padding=0)
 
@@ -107,7 +107,7 @@ class Seq2seqAttention(chainer.Chain):
                 eys = self.embed_y(ys)
                 eys = chainer.functions.split_axis(
                     eys, batch, 0, force_tuple=True)
-                h, c, ys = self.decoder(h, c, eys, train=False)
+                h, c, ys = self.decoder(h, c, eys)
                 cys = chainer.functions.concat(ys, axis=0)
 
                 s = F.batch_matmul(hxs_zero, cys)
