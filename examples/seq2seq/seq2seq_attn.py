@@ -117,7 +117,7 @@ class Seq2seqAttention(chainer.Chain):
                 a = F.broadcast_to(a, hxs_zero.shape)
                 wh = hxs_zero * a
                 cy = F.average(wh, axis=1)
-                cys = self.Wc(F.concat([cy, cys]))
+                cys = F.tanh(self.Wc(F.concat([cy, cys])))
 
                 wy = self.W(cys)
                 ys = self.xp.argmax(wy.data, axis=1).astype('i')
