@@ -4,7 +4,6 @@ import chainer
 from chainer import cuda
 import chainer.functions as F
 import chainer.links as L
-from chainer import reporter
 
 
 def sequence_embed(embed, xs):
@@ -80,10 +79,10 @@ class Seq2seqAttention(chainer.Chain):
         loss = F.softmax_cross_entropy(
             self.W(concat_os), concat_ys_out, reduce='no') / batch
 
-        reporter.report({'loss': loss.data}, self)
+        chainer.report({'loss': loss.data}, self)
         n_words = concat_ys_out.shape[0]
-        perp = self.xp.exp(loss.data / n_words)
-        reporter.report({'perp': perp}, self)
+        perp = self.xp.exp(loss.data * batch / n_words)
+        chainer.report({'perp': perp}, self)
         return loss
 
     def translate(self, xs, max_length=50):
