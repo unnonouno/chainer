@@ -76,8 +76,8 @@ class Seq2seqAttention(chainer.Chain):
 
         concat_os = F.concat(os, axis=0)
         concat_ys_out = F.concat(ys_out, axis=0)
-        loss = F.softmax_cross_entropy(
-            self.W(concat_os), concat_ys_out, reduce='no') / batch
+        loss = F.sum(F.softmax_cross_entropy(
+            self.W(concat_os), concat_ys_out, reduce='no')) / batch
 
         chainer.report({'loss': loss.data}, self)
         n_words = concat_ys_out.shape[0]
