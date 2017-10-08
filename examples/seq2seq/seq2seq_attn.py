@@ -90,9 +90,7 @@ class Seq2seqAttention(chainer.Chain):
         with chainer.no_backprop_mode(), chainer.using_config('train', False):
             xs = [x[::-1] for x in xs]
             exs = sequence_embed(self.embed_x, xs)
-            # Initial hidden variable and cell variable
-            zero = self.xp.zeros((self.n_layers, batch, self.n_units), 'f')
-            h, c, hxs = self.encoder(zero, zero, exs)
+            h, c, hxs = self.encoder(None, None, exs)
 
             hxs_zero = F.pad_sequence(hxs, padding=0)
 
