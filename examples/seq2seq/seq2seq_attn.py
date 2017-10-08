@@ -6,6 +6,10 @@ import chainer.functions as F
 import chainer.links as L
 
 
+UNK = 0
+EOS = 1
+
+
 def sequence_embed(embed, xs):
     x_len = [len(x) for x in xs]
     x_section = numpy.cumsum(x_len[:-1])
@@ -34,7 +38,7 @@ class Seq2seqAttention(chainer.Chain):
     def __call__(self, xs, ys):
         xs = [x[::-1] for x in xs]
 
-        eos = self.xp.zeros(1, 'i')
+        eos = self.xp.array([EOS], 'i')
         ys_in = [F.concat([eos, y], axis=0) for y in ys]
         ys_out = [F.concat([y, eos], axis=0) for y in ys]
 
@@ -98,7 +102,7 @@ class Seq2seqAttention(chainer.Chain):
             for i, hx in enumerate(hxs):
                 inf[i, 0:hx.shape[0]] = -1000
 
-            ys = self.xp.zeros(batch, 'i')
+            ys = self.xp.full(batch, EOS, 'i')
             result = []
             for i in range(max_length):
                 eys = self.embed_y(ys)
@@ -125,7 +129,7 @@ class Seq2seqAttention(chainer.Chain):
         # Remove EOS taggs
         outs = []
         for y in result:
-            inds = numpy.argwhere(y == 0)
+            inds = numpy.argwhere(y == EOS)
             if len(inds) > 0:
                 y = y[:inds[0, 0]]
             outs.append(y)
