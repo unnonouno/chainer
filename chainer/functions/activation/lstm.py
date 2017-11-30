@@ -1,5 +1,6 @@
 import numpy
 import six
+import warnings
 
 from chainer import cuda
 from chainer import function
@@ -214,47 +215,50 @@ def _cupy_sigmoid(x):
     return cuda.fusion.tanh(x * half) * half + half
 
 
-@cuda.fuse()
-def lstm_grad_grad(
-        c_prev, a, i, f, o, c, gc, gh, ggc_prev, gga, ggi, ggf, ggo):
-    sig_o = _cupy_sigmoid(o)
-    gsig_o = _grad_sigmoid(sig_o)
-    ggsig_o = _grad_grad_sigmoid(sig_o)
-    sig_i = _cupy_sigmoid(i)
-    gsig_i = _grad_sigmoid(sig_i)
-    ggsig_i = _grad_grad_sigmoid(sig_i)
-    sig_f = _cupy_sigmoid(f)
-    gsig_f = _grad_sigmoid(sig_f)
-    ggsig_f = _grad_grad_sigmoid(sig_f)
-    tanh_a = cuda.fusion.tanh(a)
-    gtanh_a = _grad_tanh(tanh_a)
-    ggtanh_a = _grad_grad_tanh(tanh_a, gtanh_a)
-    tanh_c = cuda.fusion.tanh(c)
-    gtanh_c = _grad_tanh(tanh_c)
-    ggtanh_c = _grad_grad_tanh(tanh_c, gtanh_c)
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore', FutureWarning)
 
-    gc_bar = gh * sig_o * gtanh_c + gc
+    @cuda.fuse()
+    def lstm_grad_grad(
+            c_prev, a, i, f, o, c, gc, gh, ggc_prev, gga, ggi, ggf, ggo):
+        sig_o = _cupy_sigmoid(o)
+        gsig_o = _grad_sigmoid(sig_o)
+        ggsig_o = _grad_grad_sigmoid(sig_o)
+        sig_i = _cupy_sigmoid(i)
+        gsig_i = _grad_sigmoid(sig_i)
+        ggsig_i = _grad_grad_sigmoid(sig_i)
+        sig_f = _cupy_sigmoid(f)
+        gsig_f = _grad_sigmoid(sig_f)
+        ggsig_f = _grad_grad_sigmoid(sig_f)
+        tanh_a = cuda.fusion.tanh(a)
+        gtanh_a = _grad_tanh(tanh_a)
+        ggtanh_a = _grad_grad_tanh(tanh_a, gtanh_a)
+        tanh_c = cuda.fusion.tanh(c)
+        gtanh_c = _grad_tanh(tanh_c)
+        ggtanh_c = _grad_grad_tanh(tanh_c, gtanh_c)
 
-    gc_prev = ggf * gc_bar * gsig_f
-    ga = (gga * sig_i * ggtanh_a +
-          ggi * gtanh_a * gsig_i) * gc_bar
-    gi = (gga * gtanh_a * gsig_i +
-          ggi * tanh_a * ggsig_i) * gc_bar
-    gf = (ggc_prev * (gh * sig_o * gtanh_c + gc) * gsig_f +
-          ggf * gc_bar * c_prev * ggsig_f)
+        gc_bar = gh * sig_o * gtanh_c + gc
 
-    ggc = (
-        ggc_prev * sig_f +
-        gga * sig_i * gtanh_a +
-        ggi * tanh_a * gsig_i +
-        ggf * c_prev * gsig_f)
+        gc_prev = ggf * gc_bar * gsig_f
+        ga = (gga * sig_i * ggtanh_a +
+              ggi * gtanh_a * gsig_i) * gc_bar
+        gi = (gga * gtanh_a * gsig_i +
+              ggi * tanh_a * ggsig_i) * gc_bar
+        gf = (ggc_prev * (gh * sig_o * gtanh_c + gc) * gsig_f +
+              ggf * gc_bar * c_prev * ggsig_f)
 
-    dgc_do = gh * gsig_o * gtanh_c
-    go = ggc * dgc_do + ggo * gh * tanh_c * ggsig_o
-    dgc_dc = gh * sig_o * ggtanh_c
-    gc_next = ggc * dgc_dc + ggo * gh * gtanh_c * gsig_o
-    ggh = ggc * sig_o * gtanh_c + ggo * tanh_c * gsig_o
-    return gc_prev, ga, gi, gf, go, gc_next, ggc, ggh
+        ggc = (
+            ggc_prev * sig_f +
+            gga * sig_i * gtanh_a +
+            ggi * tanh_a * gsig_i +
+            ggf * c_prev * gsig_f)
+
+        dgc_do = gh * gsig_o * gtanh_c
+        go = ggc * dgc_do + ggo * gh * tanh_c * ggsig_o
+        dgc_dc = gh * sig_o * ggtanh_c
+        gc_next = ggc * dgc_dc + ggo * gh * gtanh_c * gsig_o
+        ggh = ggc * sig_o * gtanh_c + ggo * tanh_c * gsig_o
+        return gc_prev, ga, gi, gf, go, gc_next, ggc, ggh
 
 
 def lstm(c_prev, x):
