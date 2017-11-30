@@ -97,10 +97,10 @@ class NStepRNNBase(link.ChainList):
         self.direction = direction
         self.rnn = rnn.n_step_birnn if use_bi_direction else rnn.n_step_rnn
 
-    def init_hx(self, xs):
-        shape = (self.n_layers * self.direction, len(xs), self.out_size)
+    def init_hx(self, batch, dtype):
+        shape = (self.n_layers * self.direction, batch, self.out_size)
         with cuda.get_device_from_id(self._device_id):
-            hx = variable.Variable(self.xp.zeros(shape, dtype=xs[0].dtype))
+            hx = variable.Variable(self.xp.zeros(shape, dtype=dtype))
         return hx
 
     def __call__(self, hx, xs, **kwargs):
@@ -120,6 +120,10 @@ class NStepRNNBase(link.ChainList):
             xs (list of ~chainer.Variable): List of input sequences.
                 Each element ``xs[i]`` is a :class:`chainer.Variable` holding
                 a sequence.
+            with_sort (bool): If ``True``, the funciton sorts input arrays
+                
+            with_transpose (bool): When ``with_transpose`` is ``False``,
+                ``with_sort`` must be ``False``.
         """
         argument.check_unexpected_kwargs(
             kwargs, train='train argument is not supported anymore. '
@@ -127,15 +131,19 @@ class NStepRNNBase(link.ChainList):
         argument.assert_kwargs_empty(kwargs)
 
         assert isinstance(xs, (list, tuple))
-        indices = argsort_list_descent(xs)
 
-        xs = permutate_list(xs, indices, inv=False)
-        if hx is None:
-            hx = self.init_hx(xs)
+        if with_transpose:
+            if with_sort:
+                indices = argsort_list_descent(xs)
+                xs = permutate_list(xs, indices, inv=False)
+                if hx is not None:
+                    hx = permutate.permutate(hx, indices, axis=1, inv=False)
+            trans_x = transpose_sequence.transpose_sequence(xs)
         else:
-            hx = permutate.permutate(hx, indices, axis=1, inv=False)
+            trans_x = xs
 
-        trans_x = transpose_sequence.transpose_sequence(xs)
+        if hx is None:
+            hx = self.init_hx(len(xs), xs[0].dtype)
 
         ws = [[w.w0, w.w1] for w in self]
         bs = [[w.b0, w.b1] for w in self]
@@ -144,9 +152,11 @@ class NStepRNNBase(link.ChainList):
             self.n_layers, self.dropout, hx, ws, bs, trans_x,
             activation=self.activation)
 
-        hy = permutate.permutate(hy, indices, axis=1, inv=True)
-        ys = transpose_sequence.transpose_sequence(trans_y)
-        ys = permutate_list(ys, indices, inv=True)
+        if with_transpose:
+            ys = transpose_sequence.transpose_sequence(trans_y)
+            if with_sort:
+                hy = permutate.permutate(hy, indices, axis=1, inv=True)
+                ys = permutate_list(ys, indices, inv=True)
 
         return hy, ys
 
