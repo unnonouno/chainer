@@ -38,7 +38,7 @@ class NStepBiGRU(n_step_rnn.BaseNStepRNN):
 
 
 def n_step_gru(
-        n_layers, dropout_ratio, hx, ws, bs, xs, **kwargs):
+        n_layers, dropout_ratio, hx, w, xs, **kwargs):
     """n_step_gru(n_layers, dropout_ratio, hx, ws, bs, xs)
 
     Stacked Uni-directional Gated Recurrent Unit function.
@@ -118,7 +118,7 @@ def n_step_gru(
 
     """
 
-    return n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs,
+    return n_step_gru_base(n_layers, dropout_ratio, hx, w, xs,
                            use_bi_direction=False, **kwargs)
 
 
@@ -225,7 +225,7 @@ def n_step_bigru(
                            use_bi_direction=True, **kwargs)
 
 
-def n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs,
+def n_step_gru_base(n_layers, dropout_ratio, hx, w, xs,
                     use_bi_direction, **kwargs):
     """n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs, use_bi_direction)
 
@@ -285,6 +285,8 @@ def n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs,
        :func:`chainer.functions.n_step_birnn`
 
     """  # NOQA
+    rnn_desc = kwargs.pop('rnn_desc', None)
+    w_desc = kwargs.pop('w_desc', None)
     argument.check_unexpected_kwargs(
         kwargs, train='train argument is not supported anymore. '
         'Use chainer.using_config',
@@ -297,19 +299,20 @@ def n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs,
     if xp is not numpy and chainer.should_use_cudnn('>=auto', 5000):
         states = get_random_state().create_dropout_states(dropout_ratio)
         # flatten all input variables
-        inputs = tuple(itertools.chain(
-            (hx, ),
-            itertools.chain.from_iterable(ws),
-            itertools.chain.from_iterable(bs),
-            xs))
+        #inputs = tuple(itertools.chain(
+            #(hx, w),
+            #itertools.chain.from_iterable(ws),
+            #itertools.chain.from_iterable(bs),
+            #xs))
+        inputs = hx, w, xs
         if use_bi_direction:
-            rnn = NStepBiGRU(n_layers, states)
+            rnn = NStepBiGRU(n_layers, states, rnn_desc=rnn_desc, w_desc=w_desc)
         else:
-            rnn = NStepGRU(n_layers, states)
+            rnn = NStepGRU(n_layers, states, rnn_desc=rnn_desc, w_desc=w_desc)
 
         ret = rnn(*inputs)
         hy, = ret[:1]
-        ys = ret[1:]
+        ys = ret[1]
         return hy, ys
 
     else:

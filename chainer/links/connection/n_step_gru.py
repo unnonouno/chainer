@@ -5,6 +5,7 @@ from chainer.backends import cuda
 from chainer.functions.array import permutate
 from chainer.functions.array import transpose_sequence
 from chainer.functions.connection import n_step_gru as rnn
+from chainer.functions.connection import n_step_rnn
 from chainer.initializers import normal
 from chainer import link
 from chainer.links.connection.n_step_rnn import argsort_list_descent
@@ -13,7 +14,7 @@ from chainer.utils import argument
 from chainer import variable
 
 
-class NStepGRUBase(link.ChainList):
+class NStepGRUBase(link.Chain):
 
     """__init__(self, n_layers, in_size, out_size, dropout, use_bi_direction)
 
@@ -49,6 +50,8 @@ class NStepGRUBase(link.ChainList):
             'Use chainer.using_config')
         argument.assert_kwargs_empty(kwargs)
 
+        ws = []
+        bs = []
         weights = []
         direction = 2 if use_bi_direction else 1
         for i in six.moves.range(n_layers):
@@ -68,9 +71,28 @@ class NStepGRUBase(link.ChainList):
                         b = variable.Parameter(0, (out_size,))
                         setattr(weight, 'w%d' % j, w)
                         setattr(weight, 'b%d' % j, b)
+                        ws.append(w.data)
+                        bs.append(b.data)
                 weights.append(weight)
 
-        super(NStepGRUBase, self).__init__(*weights)
+        states = n_step_rnn.get_random_state().create_dropout_states(dropout)
+        if use_bi_direction:
+            rnn_dir = cuda.cuda.cudnn.CUDNN_BIDIRECTIONAL
+        else:
+            rnn_dir = cuda.cuda.cudnn.CUDNN_UNIDIRECTIONAL
+        rnn_desc = cuda.cudnn.create_rnn_descriptor(
+            out_size, n_layers, states._desc,
+            cuda.cuda.cudnn.CUDNN_LINEAR_INPUT, rnn_dir,
+            cuda.cuda.cudnn.CUDNN_GRU, cuda.cuda.cudnn.CUDNN_DATA_FLOAT)
+        w, w_desc = n_step_rnn.combine_weights(
+            rnn_desc, n_layers, direction, 6, ws, bs)
+        #super(NStepGRUBase, self).__init__(*weights)
+        super(NStepGRUBase, self).__init__()
+        with self.init_scope():
+            self.w = variable.Parameter(w)
+
+        self.rnn_desc = rnn_desc
+        self.w_desc = w_desc
 
         self.n_layers = n_layers
         self.dropout = dropout
@@ -84,7 +106,7 @@ class NStepGRUBase(link.ChainList):
             hx = variable.Variable(self.xp.zeros(shape, dtype=xs[0].dtype))
         return hx
 
-    def __call__(self, hx, xs, **kwargs):
+    def __call__(self, hx, xs, with_transpose=False, **kwargs):
         """__call__(self, hx, xs)
 
         Calculate all hidden states and cell states.
@@ -108,28 +130,39 @@ class NStepGRUBase(link.ChainList):
             'Use chainer.using_config')
         argument.assert_kwargs_empty(kwargs)
 
-        assert isinstance(xs, (list, tuple))
-        xp = cuda.get_array_module(hx, *xs)
-        indices = argsort_list_descent(xs)
-        indices_array = xp.array(indices)
+        #assert isinstance(xs, (list, tuple))
+        xp = cuda.get_array_module(hx, xs)
+        if with_transpose:
+            lengths = numpy.array([len(x) for x in xs], 'i')
+            is_sorted = (lengths[:-1] >= lengths[1:]).all()
+            if not is_sorted:
+                indices = argsort_list_descent(xs)
+                indices_array = xp.array(indices)
+                xs = permutate_list(xs, indices, inv=False)
+            if hx is None:
+                hx = self.init_hx(xs)
+            else:
+                if not is_sorted:
+                    hx = permutate.permutate(hx, indices_array, axis=1, inv=False)
 
-        xs = permutate_list(xs, indices, inv=False)
-        if hx is None:
-            hx = self.init_hx(xs)
-        else:
-            hx = permutate.permutate(hx, indices_array, axis=1, inv=False)
+            xs = transpose_sequence.transpose_sequence(xs)
+        elif hx is None:
+            shape = (self.n_layers * self.direction, xs[0].shape[0], self.out_size)
+            with cuda.get_device_from_id(self._device_id):
+                hx = variable.Variable(self.xp.zeros(shape, dtype=xs.dtype))
 
-        trans_x = transpose_sequence.transpose_sequence(xs)
+        #ws = [[w.w0, w.w1, w.w2, w.w3, w.w4, w.w5] for w in self]
+        #bs = [[w.b0, w.b1, w.b2, w.b3, w.b4, w.b5] for w in self]
 
-        ws = [[w.w0, w.w1, w.w2, w.w3, w.w4, w.w5] for w in self]
-        bs = [[w.b0, w.b1, w.b2, w.b3, w.b4, w.b5] for w in self]
+        hy, ys = self.rnn(
+            self.n_layers, self.dropout, hx, self.w, xs, rnn_desc=self.rnn_desc, w_desc=self.w_desc)
 
-        hy, trans_y = self.rnn(
-            self.n_layers, self.dropout, hx, ws, bs, trans_x)
-
-        hy = permutate.permutate(hy, indices_array, axis=1, inv=True)
-        ys = transpose_sequence.transpose_sequence(trans_y)
-        ys = permutate_list(ys, indices, inv=True)
+        if with_transpose:
+            if not is_sorted:
+                hy = permutate.permutate(hy, indices_array, axis=1, inv=True)
+            ys = transpose_sequence.transpose_sequence(ys)
+            if not is_sorted:
+                ys = permutate_list(ys, indices, inv=True)
 
         return hy, ys
 

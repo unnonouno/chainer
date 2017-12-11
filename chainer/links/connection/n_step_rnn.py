@@ -139,12 +139,12 @@ class NStepRNNBase(link.ChainList):
 
         trans_x = transpose_sequence.transpose_sequence(xs)
 
-        ws = [[w.w0, w.w1] for w in self]
-        bs = [[w.b0, w.b1] for w in self]
+        #ws = [[w.w0, w.w1] for w in self]
+        #bs = [[w.b0, w.b1] for w in self]
 
         hy, trans_y = self.rnn(
-            self.n_layers, self.dropout, hx, ws, bs, trans_x,
-            activation=self.activation)
+            self.n_layers, self.dropout, hx, self.w, trans_x,
+            activation=self.activation, rnn_desc=self.rnn_desc)
 
         hy = permutate.permutate(hy, indices_array, axis=1, inv=True)
         ys = transpose_sequence.transpose_sequence(trans_y)
