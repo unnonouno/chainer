@@ -61,13 +61,22 @@ def _make_tensor_descriptor_array(xs):
     return PointerArray([d.value for d in descs], descs)
 
 
-def _make_matrix_tensor_descriptor_array(xs):
-    x = xs[0]
-    if x.ndim < 3:
-        shape = x.shape + (1,) * (3 - x.ndim)
-        x = x.reshape(shape)
-    desc = cudnn.create_tensor_nd_descriptor(x)
-    return PointerArray([desc.value] * len(xs), desc)
+def _make_matrix_tensor_descriptor_array(xs, lengths):
+    descs = []
+    last_length = -1
+    for length in lengths:
+        if length == last_length:
+            descs.append(descs[-1])
+            continue
+        last_length = length
+        shape = (length,) + xs.shape[1:]
+        x = xs[0:length]
+        if len(shape) < 3:
+            shape = x.shape + (1,) * (3 - x.ndim)
+            x = x.reshape(shape)
+        desc = cudnn.create_tensor_nd_descriptor(x)
+        descs.append(desc)
+    return PointerArray([d.value for d in descs], descs)
 
 
 class DropoutRandomStates(object):
@@ -177,7 +186,7 @@ def combine_weights(rnn_desc, n_layers, rnn_direction, n_W, ws, bs):
 
 class BaseNStepRNN(function.Function):
 
-    def __init__(self, n_layers, states, rnn_dir, rnn_mode, **kwargs):
+    def __init__(self, n_layers, states, rnn_dir, rnn_mode, lengths, **kwargs):
         self.rnn_desc = kwargs.pop('rnn_desc', None)
         self.w_desc = kwargs.pop('w_desc', None)
         argument.check_unexpected_kwargs(
@@ -200,6 +209,7 @@ class BaseNStepRNN(function.Function):
         self.states = states
         self.use_cell = _rnn_params_use_cell[self.rnn_mode]
         self.n_W = _rnn_n_params[self.rnn_mode]
+        self.lengths = lengths
 
     @property
     def _n_cell(self):
@@ -323,14 +333,16 @@ class BaseNStepRNN(function.Function):
         inputs = inputs[1:]
         #x_list = inputs
         xs = inputs[0]
+        xs = cuda.cupy.ascontiguousarray(xs)
         hx = cuda.cupy.ascontiguousarray(hx)
 
         #length = len(x_list)
-        length = len(xs)
+        lengths = self.lengths
+        length = len(lengths)
         n_units = hx.shape[2]
 
         #xs = cuda.cupy.concatenate(x_list, axis=0)
-        ys = cuda.cupy.empty((xs.shape[0], xs.shape[1],
+        ys = cuda.cupy.empty((xs.shape[0],
                               n_units * self.rnn_direction), dtype=xs.dtype)
 
         handle = cudnn.get_handle()
@@ -351,13 +363,13 @@ class BaseNStepRNN(function.Function):
         self.w = w
         w_desc = self.w_desc
 
-        c_x_descs = _make_matrix_tensor_descriptor_array(xs)
+        c_x_descs = _make_matrix_tensor_descriptor_array(xs, lengths)
         hx_desc = cudnn.create_tensor_nd_descriptor(hx)
 
         #sections = numpy.cumsum([len(x) for x in x_list[:-1]])
         #y_list = cuda.cupy.split(ys, sections)
 
-        c_y_descs = _make_matrix_tensor_descriptor_array(ys)
+        c_y_descs = _make_matrix_tensor_descriptor_array(ys, lengths)
         hy = cuda.cupy.empty_like(hx)
         hy_desc = cudnn.create_tensor_nd_descriptor(hy)
 
@@ -427,38 +439,26 @@ class BaseNStepRNN(function.Function):
             cx_data_ptr = dcy_data_ptr = dcx_data_ptr = 0
             cx_desc_value = dcx_desc_value = dcy_desc_value = 0
 
-        #ws_size = self.n_layers * self.rnn_direction * self.n_W
-        #ws, inputs = _split(inputs, ws_size)
-        #bs, inputs = _split(inputs, ws_size)
-        w = inputs[0]
-        inputs = inputs[1:]
-        #x_list = inputs
-        xs = inputs[0]
+        w, xs = inputs
         hx = cuda.cupy.ascontiguousarray(hx)
 
         if dhy is None:
             dhy = cuda.cupy.zeros_like(hx)
 
-        #dy_list = list(grads[self._n_cell:])
-        #for i in six.moves.range(len(dy_list)):
-        #    if dy_list[i] is None:
-        #        shape = (x_list[i].shape[0], self.rnn_direction * hx.shape[2])
-        #        dy_list[i] = cuda.cupy.zeros(shape, dtype='f')
-
-        #xs = cuda.cupy.concatenate(x_list, axis=0)
-        length = len(xs)
+        lengths = self.lengths
+        length = len(lengths)
 
         dhx = cuda.cupy.empty_like(hx)
 
         hx_desc = cudnn.create_tensor_nd_descriptor(hx)
         dhy_desc = cudnn.create_tensor_nd_descriptor(dhy)
 
-        #dy_list = [cuda.cupy.ascontiguousarray(dy) for dy in dy_list]
-        #c_dy_descs = _make_tensor_descriptor_array(dy_list)
-        #dys = cuda.cupy.concatenate(dy_list, axis=0)
         dys = grads[self._n_cell]
-        dys = cuda.cupy.ascontiguousarray(dys)
-        c_dy_descs = _make_matrix_tensor_descriptor_array(dys)
+        if dys is None:
+            dys = cuda.cupy.zeros((xs.shape[0], hx.shape[2]), 'f')
+        else:
+            dys = cuda.cupy.ascontiguousarray(dys)
+        c_dy_descs = _make_matrix_tensor_descriptor_array(dys, lengths)
 
         rnn_desc = self.rnn_desc
         handle = self.handle
@@ -469,10 +469,7 @@ class BaseNStepRNN(function.Function):
         dhx_desc = cudnn.create_tensor_nd_descriptor(dhx)
 
         dxs = cuda.cupy.empty_like(xs)
-        #sections = numpy.cumsum([len(x) for x in x_list[:-1]])
-        #dx_list = cuda.cupy.split(dxs, sections, 0)
-        #c_dx_descs = _make_tensor_descriptor_array(dx_list)
-        c_dx_descs = _make_matrix_tensor_descriptor_array(dxs)
+        c_dx_descs = _make_matrix_tensor_descriptor_array(dxs, lengths)
 
         libcudnn.RNNBackwardData(
             handle, rnn_desc.value, length,

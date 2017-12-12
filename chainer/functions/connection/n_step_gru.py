@@ -38,7 +38,7 @@ class NStepBiGRU(n_step_rnn.BaseNStepRNN):
 
 
 def n_step_gru(
-        n_layers, dropout_ratio, hx, w, xs, **kwargs):
+        n_layers, dropout_ratio, hx, w, xs, lengths, **kwargs):
     """n_step_gru(n_layers, dropout_ratio, hx, ws, bs, xs)
 
     Stacked Uni-directional Gated Recurrent Unit function.
@@ -118,7 +118,7 @@ def n_step_gru(
 
     """
 
-    return n_step_gru_base(n_layers, dropout_ratio, hx, w, xs,
+    return n_step_gru_base(n_layers, dropout_ratio, hx, w, xs, lengths,
                            use_bi_direction=False, **kwargs)
 
 
@@ -225,7 +225,7 @@ def n_step_bigru(
                            use_bi_direction=True, **kwargs)
 
 
-def n_step_gru_base(n_layers, dropout_ratio, hx, w, xs,
+def n_step_gru_base(n_layers, dropout_ratio, hx, w, xs, lengths,
                     use_bi_direction, **kwargs):
     """n_step_gru_base(n_layers, dropout_ratio, hx, ws, bs, xs, use_bi_direction)
 
@@ -308,7 +308,7 @@ def n_step_gru_base(n_layers, dropout_ratio, hx, w, xs,
         if use_bi_direction:
             rnn = NStepBiGRU(n_layers, states, rnn_desc=rnn_desc, w_desc=w_desc)
         else:
-            rnn = NStepGRU(n_layers, states, rnn_desc=rnn_desc, w_desc=w_desc)
+            rnn = NStepGRU(n_layers, states, rnn_desc=rnn_desc, lengths=lengths, w_desc=w_desc)
 
         ret = rnn(*inputs)
         hy, = ret[:1]

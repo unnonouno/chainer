@@ -106,7 +106,7 @@ class NStepGRUBase(link.Chain):
             hx = variable.Variable(self.xp.zeros(shape, dtype=xs[0].dtype))
         return hx
 
-    def __call__(self, hx, xs, with_transpose=False, **kwargs):
+    def __call__(self, hx, xs, lengths, with_transpose=False, **kwargs):
         """__call__(self, hx, xs)
 
         Calculate all hidden states and cell states.
@@ -133,7 +133,7 @@ class NStepGRUBase(link.Chain):
         #assert isinstance(xs, (list, tuple))
         xp = cuda.get_array_module(hx, xs)
         if with_transpose:
-            lengths = numpy.array([len(x) for x in xs], 'i')
+            #lengths = numpy.array([len(x) for x in xs], 'i')
             is_sorted = (lengths[:-1] >= lengths[1:]).all()
             if not is_sorted:
                 indices = argsort_list_descent(xs)
@@ -147,7 +147,7 @@ class NStepGRUBase(link.Chain):
 
             xs = transpose_sequence.transpose_sequence(xs)
         elif hx is None:
-            shape = (self.n_layers * self.direction, xs[0].shape[0], self.out_size)
+            shape = (self.n_layers * self.direction, lengths[0], self.out_size)
             with cuda.get_device_from_id(self._device_id):
                 hx = variable.Variable(self.xp.zeros(shape, dtype=xs.dtype))
 
@@ -155,7 +155,7 @@ class NStepGRUBase(link.Chain):
         #bs = [[w.b0, w.b1, w.b2, w.b3, w.b4, w.b5] for w in self]
 
         hy, ys = self.rnn(
-            self.n_layers, self.dropout, hx, self.w, xs, rnn_desc=self.rnn_desc, w_desc=self.w_desc)
+            self.n_layers, self.dropout, hx, self.w, xs, lengths, rnn_desc=self.rnn_desc, w_desc=self.w_desc)
 
         if with_transpose:
             if not is_sorted:
