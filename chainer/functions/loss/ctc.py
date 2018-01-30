@@ -259,9 +259,12 @@ class ConnectionistTemporalClassification(function.Function):
         else:
             self.yseq *= grad_output[0][..., None]
         # mask
-        self.yseq *= (
-            xp.arange(len(self.yseq))[:, None] < self.input_length)[..., None]
-        return (None, None, None) + tuple([y for y in self.yseq])
+        seq_length = len(self.yseq)
+        self.yseq[xp.arange(seq_length, dtype='i')[:, None]
+                  >= self.input_length] = 0
+        ys = tuple(
+            [xp.squeeze(y, 0) for y in xp.split(self.yseq, seq_length, 0)])
+        return (None, None, None) + ys
 
 
 def connectionist_temporal_classification(
